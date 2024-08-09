@@ -2,23 +2,55 @@ import { Container } from "@/components/Container";
 import { tabsList } from "@/lib/mock";
 import { hitSlop } from "@/lib/reanimated";
 import { colorShades, layout } from "@/lib/theme";
-import { memo } from "react";
+import { memo, useEffect } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { ScrollView, TouchableOpacity } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
+import Animated, {
+  measure,
+  runOnJS,
+  runOnUI,
+  scrollTo,
+  SharedValue,
+  useAnimatedRef,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import type { MeasuredDimensions } from "react-native-reanimated/src/reanimated2/commonTypes";
 
 type TabsProps = {
   name: string;
+  onActive: (measurements: MeasuredDimensions) => void;
   isActiveTabIndex: boolean;
 };
 
-const Tab = memo(({ name, isActiveTabIndex }: TabsProps) => {
+const Tab = memo(({ onActive, name, isActiveTabIndex }: TabsProps) => {
+  const tabRef = useAnimatedRef<View>();
+
+  const sendMeasurements = () => {
+    runOnUI(() => {
+      const measurements = measure(tabRef);
+      runOnJS(onActive)(measurements);
+    })();
+  };
+
+  useEffect(() => {
+    if (isActiveTabIndex) sendMeasurements();
+  }, [isActiveTabIndex]);
+
   return (
-    <View style={styles.tab}>
+    <View
+      style={styles.tab}
+      ref={tabRef}
+      onLayout={() => {
+        if (isActiveTabIndex) sendMeasurements();
+      }}
+    >
       <TouchableOpacity
+        onPress={sendMeasurements}
         hitSlop={hitSlop}
         style={{ marginHorizontal: layout.spacing }}
-        onPress={() => {}}>
+      >
         <Text>{name}</Text>
       </TouchableOpacity>
     </View>
@@ -26,9 +58,26 @@ const Tab = memo(({ name, isActiveTabIndex }: TabsProps) => {
 });
 
 // This component should receive the selected tab measurements as props
-function Indicator() {
-  return <Animated.View style={[styles.indicator]} />;
+function Indicator({
+  selectedTabMeasurements,
+}: {
+  selectedTabMeasurements: SharedValue<MeasuredDimensions | null>;
+}) {
+  const stylez = useAnimatedStyle(() => {
+    if (!selectedTabMeasurements?.value) return {};
+
+    const { x, width } = selectedTabMeasurements.value;
+
+    return {
+      left: withTiming(x),
+      bottom: 0,
+      width: withTiming(width),
+    };
+  });
+
+  return <Animated.View style={[styles.indicator, stylez]} />;
 }
+
 export function DynamicTabsLesson({
   selectedTabIndex = 0,
   onChangeTab,
@@ -38,20 +87,51 @@ export function DynamicTabsLesson({
   // Don't forget to check if the function exists before calling it
   onChangeTab?: (index: number) => void;
 }) {
+  const tabMeasurements = useSharedValue<MeasuredDimensions | null>(null);
+  const scrollViewRef = useAnimatedRef<ScrollView>();
+
+  const scrollToTab = (index: number) => {
+    runOnUI(() => {
+      const scrollViewDimensions: MeasuredDimensions = measure(scrollViewRef);
+
+      if (!scrollViewDimensions || !tabMeasurements.value) {
+        return;
+      }
+
+      scrollTo(
+        scrollViewRef,
+        tabMeasurements.value.x -
+          (scrollViewDimensions.width - tabMeasurements.value.width) / 2,
+        0,
+        true
+      );
+
+      if (onChangeTab) {
+        runOnJS(onChangeTab)(index);
+      }
+    })();
+  };
+
   return (
     <Container>
       <ScrollView
         horizontal
         style={{ flexGrow: 0 }}
-        contentContainerStyle={styles.scrollViewContainer}>
+        contentContainerStyle={styles.scrollViewContainer}
+        ref={scrollViewRef}
+      >
         {tabsList.map((tab, index) => (
           <Tab
             key={`tab-${tab}-${index}`}
             name={tab}
             isActiveTabIndex={index === selectedTabIndex}
+            onActive={(measurements) => {
+              tabMeasurements.value = measurements;
+              scrollToTab(index);
+            }}
           />
         ))}
-        <Indicator />
+        <Indicator selectedTabMeasurements={tabMeasurements} />
       </ScrollView>
     </Container>
   );
