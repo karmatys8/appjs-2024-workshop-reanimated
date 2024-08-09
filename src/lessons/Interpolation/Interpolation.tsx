@@ -2,20 +2,35 @@ import { Container } from "@/components/Container";
 import { items } from "@/lib/mock";
 import { colors, layout } from "@/lib/theme";
 import React from "react";
-import {
-  FlatList,
-  ListRenderItemInfo,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ListRenderItemInfo, StyleSheet, Text } from "react-native";
+import Animated, {
+  interpolate,
+  interpolateColor,
+  SharedValue,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 
 type ItemType = (typeof items)[0];
 
 export function Interpolation() {
+  const scrollX = useSharedValue(0);
+
+  const onScroll = useAnimatedScrollHandler((e) => {
+    scrollX.value = e.contentOffset.x / (layout.itemSize + layout.spacing);
+  });
+
   return (
     <Container style={styles.container}>
-      <FlatList
+      <Animated.FlatList
+        initialScrollIndex={1}
+        getItemLayout={(_, index) => ({
+          length: layout.itemSize + layout.spacing,
+          offset: (layout.itemSize + layout.spacing) * index,
+          index,
+        })}
+        scrollEventThrottle={16.67}
         data={items}
         horizontal
         contentContainerStyle={{
@@ -31,19 +46,41 @@ export function Interpolation() {
         snapToInterval={layout.itemSize + layout.spacing}
         // This is to snap faster to the closest item
         decelerationRate={"fast"}
-        renderItem={(props) => <Item {...props} />}
+        renderItem={(props) => <Item {...props} scrollX={scrollX} />}
+        onScroll={onScroll}
       />
     </Container>
   );
 }
 
-type ItemProps = ListRenderItemInfo<ItemType> & {};
+type ItemProps = ListRenderItemInfo<ItemType> & {
+  scrollX: SharedValue<number>;
+};
 
-export function Item({ item, index }: ItemProps) {
+export function Item({ item, index, scrollX }: ItemProps) {
+  const stylez = useAnimatedStyle(() => {
+    return {
+      backgroundColor: interpolateColor(
+        scrollX.value,
+        [index - 1, index, index + 1],
+        [colors.purple, colors.overlay, colors.green]
+      ),
+      transform: [
+        {
+          scale: interpolate(
+            scrollX.value,
+            [index - 1, index, index + 1],
+            [0.9, 1, 0.9]
+          ),
+        },
+      ],
+    };
+  });
+
   return (
-    <View style={styles.item}>
+    <Animated.View style={[styles.item, stylez]}>
       <Text>{item.label}</Text>
-    </View>
+    </Animated.View>
   );
 }
 
